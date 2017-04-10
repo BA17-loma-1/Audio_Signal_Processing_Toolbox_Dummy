@@ -39,7 +39,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void decodeAndPlay() {
         init();
-        if (isInitialised()) {
+        if (isInitialised() && !isRunning()) {
             keepDecoding = true;
             new Thread(new Runnable() {
                 @Override
@@ -60,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void decodeFilterAndPlay() {
         init();
-        if (isInitialised()) {
+        if (isInitialised() && !isRunning()) {
             keepDecoding = true;
             new Thread(new Runnable() {
                 @Override
@@ -112,6 +112,10 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isInitialised() {
         return audioTrack != null && audioTrack.getState() == AudioTrack.STATE_INITIALIZED;
+    }
+
+    private boolean isRunning() {
+        return audioTrack != null && audioTrack.getState() == AudioTrack.PLAYSTATE_PLAYING;
     }
 
 }
