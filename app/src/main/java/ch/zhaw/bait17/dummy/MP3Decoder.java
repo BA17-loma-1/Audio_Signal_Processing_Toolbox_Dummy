@@ -1,7 +1,11 @@
 package ch.zhaw.bait17.dummy;
 
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
+import android.widget.Toast;
 
+import java.io.IOException;
 import java.io.InputStream;
 
 import javazoom.jl.decoder.Bitstream;
@@ -13,43 +17,68 @@ import javazoom.jl.decoder.SampleBuffer;
 
 /**
  * <p>
- * Implementation of a mp3 decoder.
- * PCM sample blocks can be read one by one with {@link #getNextSampleBlock()}.
+ *     Implementation of a MP3 decoder based on Java Zoom JLayer.
+ *     PCM sample blocks can be read one by one with {@link #getNextSampleBlock()}.
  * </p>
- *
  * @author georgrem, stockan1
  */
 
 public class MP3Decoder implements AudioDecoder {
 
     private static final String TAG = MP3Decoder.class.getSimpleName();
+    private static final MP3Decoder INSTANCE = new MP3Decoder();
+    private static Decoder decoder;
 
+    private static short[] sampleBlock = null;
+    private static Bitstream bitstream;
     private InputStream is;
-    private Bitstream bitstream;
-    private Decoder decoder;
-    private int frameIndex;
-    private int position;
-    private int shortSamplesRead;
-    private int sampleRate;
-    private int channels;
+    private static int sampleRate;
+    private static int channels;
+    private static int shortSamplesRead;
+    private static int position;
 
-    public MP3Decoder(InputStream is) {
-        this.is = is;
+    private MP3Decoder() {
+
+    }
+
+    /**
+     * Returns the singleton instance of the MP3 decoder.
+     * @return
+     */
+    public static MP3Decoder getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * Sets the audio source.
+     * @param inputStream
+     */
+    public void setSource(@NonNull InputStream inputStream) {
+        if (is != null) {
+            try {
+                is.close();
+            } catch (IOException e) {
+
+            }
+        }
+        is = inputStream;
+        bitstream = new Bitstream(is);
+        decoder = new Decoder();
         init();
     }
 
     @Override
-    public PCMSampleBlock getNextSampleBlock() {
-        PCMSampleBlock sampleBlock = null;
+    @Nullable
+    public short[] getNextSampleBlock() {
         try {
             Header currentFrameHeader = bitstream.readFrame();
             if (currentFrameHeader != null) {
-                frameIndex++;
                 position += currentFrameHeader.ms_per_frame();
                 SampleBuffer samples = (SampleBuffer) decoder.decodeFrame(currentFrameHeader, bitstream);
-                sampleBlock = new PCMSampleBlock(
-                        samples.getBuffer(), samples.getSampleFrequency());
-                shortSamplesRead += sampleBlock.getSamples().length;
+                sampleBlock = samples.getBuffer();
+                shortSamplesRead += sampleBlock.length;
+            } else {
+                return null;
             }
             bitstream.closeFrame();
         } catch (BitstreamException | DecoderException ex) {
@@ -68,25 +97,26 @@ public class MP3Decoder implements AudioDecoder {
         return channels;
     }
 
-    private void init() {
-        bitstream = new Bitstream(is);
-        decoder = new Decoder();
+    private static void init() {
         extractFrameHeaderInfo(bitstream);
         shortSamplesRead = 0;
         position = 0;
-        frameIndex = 0;
     }
 
-    private void extractFrameHeaderInfo(Bitstream bitstream) {
+    private static void extractFrameHeaderInfo(Bitstream bitstream) {
         try {
             Header frameHeader = bitstream.readFrame();
             SampleBuffer samples = (SampleBuffer) decoder.decodeFrame(frameHeader, bitstream);
-            sampleRate = samples.getSampleFrequency();
-            channels = samples.getChannelCount();
+            if (samples != null) {
+                sampleRate = samples.getSampleFrequency();
+                channels = samples.getChannelCount();
+            }
             bitstream.closeFrame();
             bitstream.unreadFrame();
-        } catch (BitstreamException | DecoderException ex) {
-            Log.e(TAG, "Failed to extract frame header data.\n " + ex.getMessage());
+        } catch(BitstreamException | DecoderException ex) {
+            Toast.makeText(ApplicationContext.getAppContext(),
+                    "Failed to extract frame header data.\n " + ex.getMessage(),
+                    Toast.LENGTH_SHORT).show();
         }
     }
 

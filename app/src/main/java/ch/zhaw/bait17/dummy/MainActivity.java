@@ -6,13 +6,8 @@ import android.media.AudioTrack;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
-
-import org.greenrobot.eventbus.EventBus;
-
 import java.io.InputStream;
-
 import ch.zhaw.bait17.dummy.filter.Filter;
-
 
 public class MainActivity extends AppCompatActivity {
 
@@ -20,87 +15,73 @@ public class MainActivity extends AppCompatActivity {
 
     private volatile boolean keepDecoding = true;
 
-    private AudioDecoder mp3Decoder;
+    private MP3Decoder mp3Decoder;
     private AudioTrack audioTrack;
     private int sampleRate;
     private int channels;
     private Filter filter;
-    private EventBus eventBus;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        init();
     }
 
     private void init() {
-        buildEventBus();
-
-        InputStream is = getResources().openRawResource(R.raw.voodoo);
-        mp3Decoder = new MP3Decoder(is);
-
+        InputStream is = getResources().openRawResource(R.raw.amen_breakbeat);
+        mp3Decoder = MP3Decoder.getInstance();
+        mp3Decoder.setSource(is);
+        sampleRate = mp3Decoder.getSampleRate();
+        channels = mp3Decoder.getChannels();
         filter = FilterUtil.getFilter(getResources().openRawResource(R.raw.b_fir_lowpass));
-
         createAudioTrack();
-        audioTrack.play();
-    }
-
-    private void buildEventBus() {
-        eventBus = EventBus.getDefault();
     }
 
     private void decodeAndPlay() {
-        keepDecoding = true;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (keepDecoding) {
-                    PCMSampleBlock pcmSampleBlock = mp3Decoder.getNextSampleBlock();
-                    if (pcmSampleBlock != null) {
-                        short[] samples = pcmSampleBlock.getSamples();
-                        audioTrack.write(samples, 0, samples.length);
-                    } else {
-                        keepDecoding = false;
+        init();
+        if (isInitialised()) {
+            keepDecoding = true;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    while (keepDecoding) {
+                        short[] pcmSampleBlock = mp3Decoder.getNextSampleBlock();
+                        if (pcmSampleBlock != null) {
+                            audioTrack.write(pcmSampleBlock, 0, pcmSampleBlock.length);
+                        } else {
+                            keepDecoding = false;
+                        }
                     }
                 }
-            }
-        }).start();
+            }).start();
+            audioTrack.play();
+        }
     }
 
     private void decodeFilterAndPlay() {
-        keepDecoding = true;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (keepDecoding) {
-                    PCMSampleBlock pcmSampleBlock = mp3Decoder.getNextSampleBlock();
-                    if (pcmSampleBlock != null) {
-                        eventBus.post(new PreFilterSampleBlock(
-                                pcmSampleBlock.getSamples(),
-                                Constants.DEFAULT_SAMPLE_RATE));
-
-                        PCMSampleBlock output = applyFilter(new PCMSampleBlock(pcmSampleBlock.getSamples(), Constants.DEFAULT_SAMPLE_RATE));
-                        short[] samples = output.getSamples();
-                        audioTrack.write(samples, 0, samples.length);
-
-                        eventBus.post(new PostFilterSampleBlock(
-                                samples,
-                                Constants.DEFAULT_SAMPLE_RATE));
-                    } else {
-                        keepDecoding = false;
+        init();
+        if (isInitialised()) {
+            keepDecoding = true;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    while (keepDecoding) {
+                        short[] pcmSampleBlock = mp3Decoder.getNextSampleBlock();
+                        if (pcmSampleBlock != null) {
+                            float[] samples = PCMUtil.short2FloatArray(pcmSampleBlock);
+                            audioTrack.write(PCMUtil.float2ShortArray(applyFilter(samples)), 0,
+                                    samples.length);
+                        } else {
+                            keepDecoding = false;
+                        }
                     }
                 }
-            }
-        }).start();
+            }).start();
+            audioTrack.play();
+        }
     }
 
     private void createAudioTrack() {
-        sampleRate = Constants.DEFAULT_SAMPLE_RATE;
-        channels = Constants.DEFAULT_CHANNELS;
-
         int optimalBufferSize = sampleRate * channels * BUFFER_LENGTH_PER_CHANNEL_IN_SECONDS;
         int bufferSize = AudioTrack.getMinBufferSize(sampleRate,
                 channels == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO,
@@ -114,13 +95,11 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private PostFilterSampleBlock applyFilter(PCMSampleBlock input) {
+    private float[] applyFilter(float[] input) {
         if (filter == null) {
-            return new PostFilterSampleBlock(input.getSamples(), input.getSampleRate());
+            return input;
         }
-        float[] samples = PCMUtil.short2FloatArray(input.getSamples());
-        short[] filtered = PCMUtil.float2ShortArray(filter.apply(samples));
-        return new PostFilterSampleBlock(filtered, input.getSampleRate());
+        return filter.apply(input);
     }
 
     public void onClick_decodeAndPlay(View view) {
@@ -129,6 +108,10 @@ public class MainActivity extends AppCompatActivity {
 
     public void onClick_decodeFilterAndPlay(View view) {
         decodeFilterAndPlay();
+    }
+
+    private boolean isInitialised() {
+        return audioTrack != null && audioTrack.getState() == AudioTrack.STATE_INITIALIZED;
     }
 
 }
